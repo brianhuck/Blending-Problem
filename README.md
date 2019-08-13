@@ -3,8 +3,7 @@ I solve a blending problem, which is commonly discussed in Ops Research literatu
 
 My goal with this problem is to solve a somewhat complex problem.  The problem requires multiple variables with subscripts as well as the use of tables to organize the assumptions. 
 
-This practice 
-Ops Research: Applications and Algorithms 3rd ed, Wayne L. Winston, page 85
+This practice problem is preneted in the book, 'Ops Research: Applications and Algorithms 3rd ed,' by Wayne L. Winston on page 85
 
 PROBLEM
 
