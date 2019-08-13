@@ -1,0 +1,239 @@
+Created on Wed Jun 26 08:34:51 2019
+
+@author: Brian Huck
+
+Goal: Create a model that references external tables
+"""
+
+
+'''
+Ops Research: Applications and Algorithms 3rd ed, Wayne L. Winston, page 85
+
+PROBLEM
+
+An oil company creates three types of gas (gas1, gas2, and gas3).  Each type is
+produced by blending three types of crude oil (crude1, crude2, and crude3).  
+
+        purchase price    octance rating    sulfure content   
+        ($/barrel)     
+crude1  45                12                 0.5 %
+crude2  35                6                  2.0 %
+crude3  25                8                  3.0 %
+
+      sales price ($/barrel)
+gas1  70
+gas2  60 
+gas3  50 
+
+The company can purchase 5,000 barrels of crude oil per day
+
+Gas1: must have an average octane rating of at least 10 and contain at most 1% sulfur 
+Gas2: must have an average octane rating of at least 8 and contain at most 2% sulfur
+Gas3: must have an average octane rating of at least 6 and contain at most 1% sulfur
+
+It costs $ 4 to transform one barrel of oil into one barrel of gasoline and the companies
+refinery can produce up to 14,000 barrels of gasoline daily.
+
+Customers require the following amounts of each gasoline:
+gas1 - 3,000 barrels per day
+gas2 - 2,000 barrels per day
+gas3 - 1,000 barrels per day
+
+Each dollar spent on advertising for a certain gas increases the demand by 10 barrels per day
+
+Maximize daily profits (profits = revenue - costs)
+'''
+
+'''
+MODEL
+Let aj = dollars spent daily on advertising gas j (i=1,2,3)
+Let xij = barrels of crude oil i used daily to produce gas j (j = 1,2,3)
+
+ASSUMPTIONS
+1) x11 + x12 + x13 = barrels of crude 1 used daily
+.
+.
+.
+6) x13 + x23 + x33 = barrels of gas produced daily
+
+7) Gasoline cannot be stored implying gas must be sold on the day it is produced
+7a) The amount of gas produced should match the demand
+8) mixing crude oils will blend linearly
+'''
+
+import pandas as pd
+
+from ortools.linear_solver import pywraplp
+
+# I create a table with columns: product, value, octane rating, sulfure content, and demand
+table = pd.read_csv('blending problem table.csv', index_col = 'product')
+
+# instantiate the solver
+solver = pywraplp.Solver('LinearExample', pywraplp.Solver.GLOP_LINEAR_PROGRAMMING)
+
+# define variables
+x = {}
+a = {}
+
+###########################################
+'''
+Parameters:
+i = type of crude oil
+j = type of gas
+
+Decision Variables:
+aj = dollars spent daily on advertising gas j (i=1,2,3)
+xij = barrels of crude oil i used daily to produce gas j (j = 1,2,3)
+'''
+
+
+for j in range(1,4):
+    a[j] = solver.NumVar(0,solver.infinity(),'a[%s]' % (j))
+    for i in range(1,4):
+        x[i,j] = solver.NumVar(0,solver.infinity(),'x[%s%s]' % (i,j))
+         
+
+###############################
+# define constraints
+###############################
+
+# gas produced daily should equal demand per day
+'''
+demand for gas = daily demand + advertisment generated demand
+x[1,1] + x[2,1] + x[3,1] = 3000 + 10 * a[1]
+x[1,1] + x[2,1] + x[3,1] - 10 * a[1] = 3000
+'''
+    
+
+for i in range(1,4):
+    solver.Add(x[1,i] + x[2,i] + x[3,i] - 10 * a[i] == table.loc['gas{}'.format(i),'demand'])
+
+
+# the company can purchase at most 5,000 barrels of crude a day
+for i in range(1,4):
+    solver.Add(x[i,1] + x[i,2] + x[i,3] <= table.loc['crude{}'.format(i),'demand'])
+
+
+# refinery can produce up to 14,000 barrels of gasoline daily
+solver.Add(solver.Sum([x[1,j] + x[2,j] + x[3,j] for j in range(1,4)]) <= 14000)
+
+
+
+# gas must meet minimum octane rating which is provided in the above chart
+'''
+Since the gas blends linearly, we define the average octane rating as
+blended octane rating = total octane value / number of barrels
+
+ex: two barrels of crude 1, three barrels of crude 2, and one barrel of crude 3 is:
+    [12(2) + 6(3) + 8(1)] / (2 + 3 + 1)
+
+CAREFUL NOTE: A common error here is to define the first constraint as
+
+[(12*x11 + 6*x21 + 8*x31) / (x11 + x21 + x31) ] >= 10
+
+but this is not a linear equaion.  Therefore, it violates a fundamental assumption 
+of LPs and IPs.  The correct way to formulate this constraint is to multiply
+both sides by the denominator, giving us
+
+(12*x11 + 6*x21 + 8*x31) >= 10 * (x11 + x21 + x31)
+
+=> 2*x11 - 4*x21 - 2*x31 >= 0 
+'''
+# min octance rating of gas1 is 10
+solver.Add(2*x[1,1] - 4*x[2,1] - 2*x[3,1] >= 0)
+
+# min octance rating of gas2 is 8
+solver.Add(4*x[1,2] - 2*x[2,2] >= 0)
+
+# min octance rating of gas3 is 6
+solver.Add(6*x[1,3] + 2*x[3,3] >= 0)
+
+# sulfur in gas must not exceed max capacity
+'''
+Total sulfure in gas mixture / number of barrels in gas mixture <= max
+'''
+
+# max sulfure levels for gas1 is 1%
+solver.Add(-.005*x[1,1] + .01*x[2,1] + .02*x[3,1] <= 0)
+
+# max sulfure levels for gas2 is 1%
+solver.Add(-.015*x[1,2] + .01*x[3,2] <= 0)
+
+# max sulfure levels for gas3 is 1%
+solver.Add(-.005*x[1,3] + .01*x[2,3] + .02*x[3,3] <= 0)
+
+
+###############################
+# define the objective function
+###############################
+'''
+Daily Profit = revenue - purchasing costs - advertisement costs - production costs
+'''
+
+solver.Maximize(70*(x[1,1] + x[2,1] + x[3,1])+60*(x[1,2] + x[2,2] + x[3,2])+50*(x[1,3] + x[2,3] + x[3,3]) - \
+                (45*(x[1,1] + x[1,2] + x[1,3])+35*(x[2,1] + x[2,2] + x[3,3])+25*(x[3,1] + x[3,2] + x[3,3])) - \
+                (a[1] + a[2] + a[3]) - 4*(x[1,1] + x[1,2] + x[1,3] + x[2,1] + x[2,2] + x[2,3] + \
+                x[3,1] + x[3,2] + x[3,3]))
+
+###############################
+# solve the problem
+###############################
+
+solver.Solve()
+opt_solution = ((70*(x[1,1].solution_value() + x[2,1].solution_value() + x[3,1].solution_value())+\
+                60*(x[1,2].solution_value() + x[2,2].solution_value() + x[3,2].solution_value())+\
+                50*(x[1,3].solution_value() + x[2,3].solution_value() + x[3,3].solution_value())) -\
+                (45*(x[1,1].solution_value() + x[1,2].solution_value() + x[1,3].solution_value())+\
+                 35*(x[2,1].solution_value() + x[2,2].solution_value() + x[2,3].solution_value())+\
+                 25*(x[3,1].solution_value() + x[3,2].solution_value() + x[3,3].solution_value())) -\
+                (a[1].solution_value() + a[2].solution_value() + a[3].solution_value()) - \
+                4*(x[1,1].solution_value() + x[1,2].solution_value() + x[1,3].solution_value() + \
+                   x[2,1].solution_value() + x[2,2].solution_value() + x[2,3].solution_value() + \
+                x[3,1].solution_value() + x[3,2].solution_value() + x[3,3].solution_value()))
+     
+'''
+opt_solution can simplify to the following, if desired:
+           
+opt_sol = 21*x[1,1].solution_value() + 11 * x[1,2].solution_value() + x[1,3].solution_value() +\
+            31*x[2,1].solution_value() + 21*x[2,2].solution_value() + 11*x[2,3].solution_value() +\
+            41*x[3,1].solution_value() + 31 * x[3,2].solution_value() + 21*x[3,3].solution_value()-\
+            a[1].solution_value() - a[2].solution_value() - a[3].solution_value()
+'''
+
+
+print('Number of variables = ', solver.NumVariables())
+print('Number of constraints = ', solver.NumConstraints())
+
+# the value of each variable 
+print('Solution: ')
+print('x[1,1] = {:0.2f}'.format(x[1,1].solution_value()))
+print('x[2,1] = {:0.2f}'.format(x[2,1].solution_value()))
+print('x[3,1] = {:0.2f}'.format(x[3,1].solution_value()))
+print('x[1,2] = {:0.2f}'.format(x[1,2].solution_value()))
+print('x[2,2] = {:0.2f}'.format(x[2,2].solution_value()))
+print('x[3,2] = {:0.2f}'.format(x[3,2].solution_value()))
+print('x[1,3] = {:0.2f}'.format(x[1,3].solution_value()))
+print('x[2,3] = {:0.2f}'.format(x[2,3].solution_value()))
+print('x[3,3] = {:0.2f}'.format(x[3,3].solution_value()))
+print('a[1] = {:0.2f}'.format(a[1].solution_value()))
+print('a[2] = {:0.2f}'.format(a[2].solution_value()))
+print('a[3] = {:0.2f}'.format(a[3].solution_value()))
+
+# the value of the objective function
+print('Optimal objective value = ', opt_solution)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
